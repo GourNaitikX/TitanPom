@@ -39,14 +39,12 @@ async function initBot() {
     }
 
     try {
-        // 1. Connect to MongoDB
         const dbClient = new MongoClient(mongoUrl);
         await dbClient.connect();
         const db = dbClient.db('VipBotDB');
         collection = db.collection('botStorage');
         console.log("✅ Connected to MongoDB successfully!");
 
-        // 2. Load Data
         const dbData = await collection.findOne({ _id: 'main_data' });
 
         if (!dbData) {
@@ -79,10 +77,8 @@ async function initBot() {
             if (!data.settings) data.settings = {};
         }
 
-        // 3. Initialize Bot
         bot = new TelegramBot(botToken, { polling: true });
         
-        // 🔥 FIX: Prevent App Crash on Polling Conflict 🔥
         bot.on('polling_error', (error) => {
             console.error("⚠️ Polling Warning (Handled):", error.message);
         });
@@ -90,7 +86,6 @@ async function initBot() {
         setupBotListeners();
         console.log("🚀 Bot is now online and polling for messages!");
 
-        // 🔥 FIX: Graceful Shutdown for Railway to prevent 409 Conflicts 🔥
         const shutdown = async () => {
             console.log("🛑 Shutdown signal received. Stopping bot polling securely...");
             try {
@@ -131,7 +126,6 @@ function getAdminMenu() {
 }
 
 function setupBotListeners() {
-    // --- Message Handling ---
     bot.on('message', async (msg) => {
         if (!msg.chat) return;
         if (!data || !Array.isArray(data.users)) return;
@@ -151,7 +145,7 @@ function setupBotListeners() {
             const newUserMention = `<a href='tg://user?id=${chatId}'>${safeName}</a>`;
             const adminMsg = `🚨 <b>New User Started Bot!</b>\n\n👤 <b>Name:</b> ${newUserMention}\n🆔 <b>Chat ID:</b> <code>${chatId}</code>\n🔗 <b>Username:</b> @${username}`;
             
-            bot.sendMessage(adminId, adminMsg, { parse_mode: 'HTML' }).catch(() => {});
+            bot.sendMessage(adminId, adminMsg, { parse_mode: 'HTML' }).catch(e => console.error(e.message));
         }
         
         data.user_details[chatId] = `${firstName} (@${username})`;
@@ -160,9 +154,8 @@ function setupBotListeners() {
         const state = data.states[chatId] || 'none';
         const isAdmin = (chatId === adminId);
 
-        // --- Admin State & Commands Handling ---
         if (isAdmin) {
-            // Broadcast Command
+            // ... (All admin states remain unchanged) ...
             if (text.startsWith('/bdc ') || captionText.startsWith('/bdc ')) {
                 const msgId = msg.message_id;
                 
@@ -176,13 +169,9 @@ function setupBotListeners() {
                 
                 for (const uId of uniqueUsers) {
                     try {
-                        if (photo) {
-                            await bot.sendPhoto(uId, photo, { caption: bdcText });
-                        } else if (video) {
-                            await bot.sendVideo(uId, video, { caption: bdcText });
-                        } else {
-                            await bot.sendMessage(uId, bdcText);
-                        }
+                        if (photo) await bot.sendPhoto(uId, photo, { caption: bdcText });
+                        else if (video) await bot.sendVideo(uId, video, { caption: bdcText });
+                        else await bot.sendMessage(uId, bdcText);
                         successCount++;
                     } catch (e) {
                         // User blocked bot
@@ -320,19 +309,18 @@ function setupBotListeners() {
                     for (let index = 0; index < data.demos.length; index++) {
                         const vid = data.demos[index];
                         const inlineBtn = { inline_keyboard: [[{ text: '❌ Delete Demo', callback_data: `deldemo_${index}` }]] };
-                        await bot.sendVideo(chatId, vid, { caption: `Demo Video #${index + 1}`, reply_markup: inlineBtn });
+                        await bot.sendVideo(chatId, vid, { caption: `Demo Video #${index + 1}`, reply_markup: inlineBtn }).catch(e => console.error("Remove Demo error:", e.message));
                     }
                     return;
                 }
             }
         }
 
-        // --- User State Handling: Screenshot ---
         if (state === 'wait_screenshot' && photo) {
             data.states[chatId] = 'none';
             
             const replyText = `⏳ Screenshot has been sent for approval\n\nYou will get private channel link within 20 minutes\n\nContact support ${data.settings.support} ✅`;
-            await bot.sendPhoto(chatId, 'https://i.ibb.co/ymm1Pvsv/x.png', { caption: replyText });
+            await bot.sendPhoto(chatId, 'https://i.ibb.co/ymm1Pvsv/x.png', { caption: replyText }).catch(e => console.error(e.message));
 
             const adminCaption = `📢 New Payment Verification\n\n👤 User: ${firstName} (@${username})\n🆔 ID: ${chatId}\n\nApprove or Reject?`;
             const adminKeyboard = {
@@ -340,12 +328,11 @@ function setupBotListeners() {
                     [{ text: '✅ Approve', callback_data: `approve_${chatId}` }, { text: '❌ Reject', callback_data: `reject_${chatId}` }]
                 ]
             };
-            await bot.sendPhoto(adminId, photo, { caption: adminCaption, reply_markup: adminKeyboard });
+            await bot.sendPhoto(adminId, photo, { caption: adminCaption, reply_markup: adminKeyboard }).catch(e => console.error(e.message));
             saveData();
             return;
         }
 
-        // --- Commands & Buttons ---
         if (text === '/start') {
             if (isAdmin) {
                 const adminText = "Welcome Admin\nBot developed by @nglynx";
@@ -365,7 +352,7 @@ function setupBotListeners() {
                     resize_keyboard: true
                 };
                 
-                await bot.sendPhoto(chatId, 'https://i.ibb.co/d4Ffygs4/x.jpg', { caption: userText, reply_markup: inlineKeyboard });
+                await bot.sendPhoto(chatId, 'https://i.ibb.co/d4Ffygs4/x.jpg', { caption: userText, reply_markup: inlineKeyboard }).catch(e => console.error("Start menu error:", e.message));
                 return bot.sendMessage(chatId, "👇 Menu 👇", { reply_markup: replyKeyboard });
             }
         }
@@ -387,7 +374,6 @@ function setupBotListeners() {
         if (text === 'PAYMENT DONE ✅') { return askForScreenshot(chatId); }
     });
 
-    // --- Callback Queries Parsing ---
     bot.on('callback_query', async (query) => {
         const callId = query.id;
         const chatId = query.message.chat.id.toString();
@@ -400,9 +386,13 @@ function setupBotListeners() {
 
         if (dataStr === 'how_to') {
             if (data.settings.how_to_video) {
-                return bot.sendVideo(chatId, data.settings.how_to_video, { caption: "✅ **How To Get Premium / Process Link**\nWatch this video to understand the process.", parse_mode: 'Markdown' }).catch(() => {});
+                return bot.sendVideo(chatId, data.settings.how_to_video, { caption: "✅ **How To Get Premium / Process Link**\nWatch this video to understand the process.", parse_mode: 'Markdown' })
+                .catch((err) => {
+                    console.error("❌ SendVideo Error (How To):", err.message);
+                    bot.sendMessage(chatId, "⚠️ Process video unavailable. *(Admin: The file_id is invalid. Please re-upload this video via the Admin Panel.)*", { parse_mode: 'Markdown' });
+                });
             } else {
-                return bot.sendMessage(chatId, "Video is not available right now. Please contact support.").catch(() => {});
+                return bot.sendMessage(chatId, "Video is not available right now. Please contact support.").catch(console.error);
             }
         }
 
@@ -411,7 +401,7 @@ function setupBotListeners() {
             if (data.demos[index] !== undefined) {
                 data.demos.splice(index, 1);
                 saveData();
-                return bot.editMessageCaption("✅ Demo video deleted!", { chat_id: chatId, message_id: messageId }).catch(() => {});
+                return bot.editMessageCaption("✅ Demo video deleted!", { chat_id: chatId, message_id: messageId }).catch(e => console.error(e.message));
             }
         }
 
@@ -424,11 +414,13 @@ function setupBotListeners() {
                     const inlineBtn = { inline_keyboard: [[{ text: '👉 Get Premium', callback_data: 'get_premium' }]] };
                     
                     bot.sendVideo(chatId, vid, { caption: caption, reply_markup: inlineBtn }).then(sentMsg => {
-                        // Automatically delete the video after 5 minutes
                         setTimeout(() => {
                             bot.deleteMessage(chatId, sentMsg.message_id).catch(() => {});
                         }, 5 * 60 * 1000);
-                    }).catch(() => {});
+                    }).catch((err) => {
+                        console.error("❌ SendVideo Error (Demo):", err.message);
+                        bot.sendMessage(chatId, "⚠️ A demo video failed to load. *(Admin: The file_id is invalid. Please remove and re-add demo videos via the Admin Panel.)*", { parse_mode: 'Markdown' }).catch(console.error);
+                    });
                 }
                 
                 const warningMsg = "⚠️ **All Demo Videos Will Be Deleted After 5 Minutes!** ⚠️\n\n_Get Premium now to enjoy unlimited lifetime access!_";
@@ -436,7 +428,7 @@ function setupBotListeners() {
                     setTimeout(() => {
                         bot.deleteMessage(chatId, sentMsg.message_id).catch(() => {});
                     }, 5 * 60 * 1000);
-                }).catch(() => {});
+                }).catch(e => console.error(e.message));
                 return;
             }
         }
@@ -454,7 +446,7 @@ function setupBotListeners() {
                 inline_keyboard: [[{ text: 'PAYMENT DONE SEND SCREENSHOT ✅', callback_data: 'ask_screenshot' }]]
             };
 
-            return bot.sendPhoto(chatId, qrUrl, { caption: payText, reply_markup: paymentButtons }).catch(() => {});
+            return bot.sendPhoto(chatId, qrUrl, { caption: payText, reply_markup: paymentButtons }).catch(e => console.error("QR Send Error:", e.message));
         }
 
         if (dataStr === 'ask_screenshot') { return askForScreenshot(chatId); }
@@ -469,7 +461,7 @@ function setupBotListeners() {
                     [{ text: 'All in One Link', callback_data: `sendlink_all_${userId}` }]
                 ]
             };
-            await bot.editMessageCaption("✅ Payment Approved. Which link to send?", { chat_id: chatId, message_id: messageId, reply_markup: linksKeyboard }).catch(() => {});
+            await bot.editMessageCaption("✅ Payment Approved. Which link to send?", { chat_id: chatId, message_id: messageId, reply_markup: linksKeyboard }).catch(e => console.error(e.message));
             
             data.history.approved = (data.history.approved || 0) + 1;
             saveData();
@@ -479,8 +471,8 @@ function setupBotListeners() {
         if (dataStr.startsWith('reject_')) {
             const userId = dataStr.replace('reject_', '');
             const rejectText = `❌ YOUR PAYMENT WAS FAILED\nInvalid payment or fake payment\nContact support: ${data.settings.support}`;
-            await bot.sendPhoto(userId, 'https://i.ibb.co/h147XCFh/x.png', { caption: rejectText }).catch(() => {});
-            await bot.editMessageCaption(`❌ Payment Rejected for ${userId}.`, { chat_id: chatId, message_id: messageId }).catch(() => {});
+            await bot.sendPhoto(userId, 'https://i.ibb.co/h147XCFh/x.png', { caption: rejectText }).catch(e => console.error(e.message));
+            await bot.editMessageCaption(`❌ Payment Rejected for ${userId}.`, { chat_id: chatId, message_id: messageId }).catch(e => console.error(e.message));
 
             data.history.rejected = (data.history.rejected || 0) + 1;
             saveData();
@@ -496,12 +488,11 @@ function setupBotListeners() {
             const packName = pack.charAt(0).toUpperCase() + pack.slice(1);
             const successText = `✅ YOUR PAYMENT IS SUCCESSFULLY APPROVED\n\nClick below link to join private channel\n\nPack: ${packName}\nLink: ${link}\nContact support ${data.settings.support}`;
             
-            await bot.sendPhoto(userId, 'https://i.ibb.co/Dfz7CSMV/x.png', { caption: successText }).catch(() => {});
-            return bot.editMessageCaption(`✅ Link sent to user ${userId}.`, { chat_id: chatId, message_id: messageId }).catch(() => {});
+            await bot.sendPhoto(userId, 'https://i.ibb.co/Dfz7CSMV/x.png', { caption: successText }).catch(e => console.error(e.message));
+            return bot.editMessageCaption(`✅ Link sent to user ${userId}.`, { chat_id: chatId, message_id: messageId }).catch(e => console.error(e.message));
         }
     });
 
-    // --- Helper Functions ---
     function sendPremiumCategories(chatId) {
         const img = data.settings.premium_image || 'https://i.ibb.co/9x38myC/x.jpg';
         const keyboard = {
@@ -512,15 +503,18 @@ function setupBotListeners() {
                 [{ text: '🥵 ALL IN ONE 50+ GROUPS ✅', callback_data: 'pay_all' }]
             ]
         };
-        bot.sendPhoto(chatId, img, { reply_markup: keyboard }).catch(() => {});
+
+        bot.sendPhoto(chatId, img, { reply_markup: keyboard }).catch((err) => {
+            console.error("❌ SendPhoto Error (Premium):", err.message);
+            bot.sendMessage(chatId, "💎 **Premium Categories:**\n\n*(Admin: Custom image failed to load. Please update it in the Admin Menu.)*", { reply_markup: keyboard, parse_mode: 'Markdown' }).catch(console.error);
+        });
     }
 
     function askForScreenshot(chatId) {
         data.states[chatId] = 'wait_screenshot';
         saveData();
-        bot.sendMessage(chatId, "📸 𝙎𝙀𝙉𝘿 𝙎𝘾𝙍𝙀𝙀𝙉𝙎𝙃𝙊𝙏 𝙊𝙁 𝙔𝙊𝙐𝙍 𝙋𝘼𝙔𝙈𝙀𝙉𝙏 𝙁𝙊𝙍 𝙂𝙀𝙏 𝙋𝙍𝙀𝙈𝙄𝙐𝙈").catch(() => {});
+        bot.sendMessage(chatId, "📸 𝙎𝙀𝙉𝘿 𝙎𝘾𝙍𝙀𝙀𝙉𝙎𝙃𝙊𝙏 𝙊𝙁 𝙔𝙊𝙐𝙍 𝙋𝘼𝙔𝙈𝙀𝙉𝙏 𝙁𝙊𝙍 𝙂𝙀𝙏 𝙋𝙍𝙀𝙈𝙄𝙐𝙈").catch(e => console.error(e.message));
     }
 }
 
-// Start everything
 initBot();
